@@ -1,0 +1,15 @@
+{
+    "reminders": [
+        "set a reminder for 11:26",
+        "set a reminder for medicines",
+        "for 11:26 p.m.",
+        "set a reminder for medicines",
+        "for 11:27"
+    ],
+    "emergency_contacts": [
+        {
+            "name": "Harshit",
+            "phone": "+919324831545"
+        }
+    ]
+}
