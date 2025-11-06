@@ -1,15 +1,41 @@
 {
-    "reminders": [
-        "set a reminder for 11:26",
-        "set a reminder for medicines",
-        "for 11:26 p.m.",
-        "set a reminder for medicines",
-        "for 11:27"
-    ],
+    "reminders": [],
     "emergency_contacts": [
         {
             "name": "Harshit",
             "phone": "+919324831545"
+        }
+    ],
+    "scheduled_reminders": [
+        {
+            "id": "8e828112",
+            "text": "Reminder at 01:26 AM",
+            "time": "2025-11-07 01:26",
+            "completed": false
+        },
+        {
+            "id": "9934448b",
+            "text": ":",
+            "time": "2025-11-07 00:30",
+            "completed": true
+        },
+        {
+            "id": "1a17d1ae",
+            "text": "sor",
+            "time": "2025-11-07 00:36",
+            "completed": true
+        },
+        {
+            "id": "b2ecc27b",
+            "text": "Reminder at 12:37 AM",
+            "time": "2025-11-07 00:37",
+            "completed": true
+        },
+        {
+            "id": "f2c710b7",
+            "text": "Reminder at 12:39 AM",
+            "time": "2025-11-07 00:39",
+            "completed": true
         }
     ]
 }

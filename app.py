@@ -3,8 +3,10 @@ from flask_cors import CORS
 import base64
 import io
 import speech_recognition as sr
+from datetime import datetime, timedelta
 from Command_Processor import CommandProcessor
 from Storage_Manager import StorageManager
+from processors.Notification_Scheduler import NotificationScheduler
 from dotenv import load_dotenv
 from ai_modules.LLM_Responder import LLMResponder
 
@@ -23,6 +25,31 @@ def speak_response(text):
     return text
 
 command_processor = CommandProcessor(storage)
+
+# Initialize LLM profile from storage if available
+try:
+    llm.update_profile(storage.get_profile())
+except Exception:
+    pass
+
+# Store pending notifications for frontend to poll
+pending_notifications = []
+
+def notify_user(reminder_text: str, reminder_id: str):
+    """Callback when reminder is due - stores notification for frontend"""
+    global pending_notifications
+    notification = {
+        "id": reminder_id,
+        "text": reminder_text,
+        "message": f"Reminder: {reminder_text}",
+        "timestamp": datetime.now().isoformat()
+    }
+    pending_notifications.append(notification)
+    print(f"NOTIFICATION: {reminder_text}")
+
+# Initialize and start notification scheduler
+scheduler = NotificationScheduler(storage, notify_user)
+scheduler.start()
 
 @app.route('/api/process-command', methods=['POST'])
 def process_command():
@@ -91,10 +118,38 @@ def process_audio():
 
 @app.route('/api/reminders', methods=['GET'])
 def get_reminders():
-    """Get all reminders"""
+    """Get all reminders (both regular and scheduled)"""
     try:
-        reminders = storage.load("reminders")
-        return jsonify({'reminders': reminders})
+        regular_reminders = storage.load("reminders")
+        scheduled_reminders = storage.get_scheduled_reminders()
+        
+        # Filter active scheduled reminders and format them
+        active_scheduled = [r for r in scheduled_reminders if not r.get("completed", False)]
+        
+        # Format scheduled reminders for display
+        formatted_scheduled = []
+        for rem in active_scheduled:
+            try:
+                dt = datetime.strptime(rem["time"], "%Y-%m-%d %H:%M")
+                now = datetime.now()
+                if dt.date() == now.date():
+                    time_display = dt.strftime("%I:%M %p")
+                elif dt.date() == (now + timedelta(days=1)).date():
+                    time_display = f"Tomorrow at {dt.strftime('%I:%M %p')}"
+                else:
+                    time_display = dt.strftime("%B %d at %I:%M %p")
+                formatted_scheduled.append(f"{rem['text']} - {time_display}")
+            except:
+                formatted_scheduled.append(f"{rem['text']} - {rem['time']}")
+        
+        # Combine both types
+        all_reminders = regular_reminders + formatted_scheduled
+        
+        return jsonify({
+            'reminders': all_reminders,
+            'regular': regular_reminders,
+            'scheduled': formatted_scheduled
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -147,6 +202,42 @@ def llm_status():
         return jsonify({'llm': llm.status()})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/profile', methods=['GET'])
+def get_profile():
+    try:
+        return jsonify({'profile': storage.get_profile()})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/profile', methods=['POST'])
+def set_profile():
+    try:
+        data = request.json or {}
+        profile = {
+            'name': data.get('name'),
+            'preferences': data.get('preferences') or {}
+        }
+        storage.set_profile(profile)
+        llm.update_profile(profile)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notifications', methods=['GET'])
+def get_notifications():
+    """Get pending notifications (frontend polls this)"""
+    global pending_notifications
+    notifications = pending_notifications.copy()
+    pending_notifications = []  # Clear after reading
+    return jsonify({'notifications': notifications})
+
+@app.route('/api/notifications/<reminder_id>', methods=['DELETE'])
+def dismiss_notification(reminder_id):
+    """Dismiss a notification"""
+    global pending_notifications
+    pending_notifications = [n for n in pending_notifications if n.get("id") != reminder_id]
+    return jsonify({'success': True})
 
 if __name__ == '__main__':
     app.run(debug=False,use_reloader=False, host='0.0.0.0', port=5000)

@@ -6,7 +6,5 @@ module.exports = {
   theme: {
     extend: {},
   },
-  plugins: [],git rm --cached -r frontend
-
+  plugins: [],
 }
-

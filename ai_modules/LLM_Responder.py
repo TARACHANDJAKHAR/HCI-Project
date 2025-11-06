@@ -14,6 +14,10 @@ class LLMResponder:
         self.provider = os.getenv("LLM_PROVIDER", "hf").lower()  # "hf" or "openai"
         self.model_name = os.getenv("LLM_MODEL", model_name)
 
+        # Conversation and personalization
+        self.profile: dict = {}
+        self.history: list[dict] = []  # [{role: 'user'|'assistant', content: str}]
+
         # HF state
         self.tokenizer = None
         self.model = None
@@ -64,21 +68,35 @@ class LLMResponder:
     def generate(self, text: str):
         self._ensure_model_loaded()
         try:
+            # Track user message and keep a short history (last 4 turns)
+            self.history.append({"role": "user", "content": text})
+            self.history = self.history[-8:]
+
+            # Build system prompt with personalization and brief instructions
+            name = self.profile.get("name")
+            prefs = self.profile.get("preferences") or {}
+            persona = self.persona
+            if name:
+                persona += f" The user's name is {name}. Address them by name occasionally."
+            if prefs.get("tone"):
+                persona += f" Use a {prefs['tone']} tone."
+
             if self.provider == "openai" and self._openai_client is not None:
-                prompt = f"{self.persona}\nUser: {text}"
+                messages = [{"role": "system", "content": persona}]
+                for m in self.history[-6:]:
+                    messages.append({"role": m["role"], "content": m["content"]})
                 try:
                     resp = self._openai_client.chat.completions.create(
                         model=self.model_name,
-                        messages=[
-                            {"role": "system", "content": self.persona},
-                            {"role": "user", "content": text},
-                        ],
+                        messages=messages,
                         temperature=0.3,
                         max_tokens=220,
                     )
                     content = resp.choices[0].message.content or ""
                     self._last_error = None
-                    return content.strip()
+                    reply = content.strip()
+                    self.history.append({"role": "assistant", "content": reply})
+                    return reply
                 except Exception as e:
                     print("OpenAI generate error:", e)
                     self._last_error = f"OpenAI generate error: {e}"
@@ -109,7 +127,10 @@ class LLMResponder:
             # Default to HF
             if self.model is None or self.tokenizer is None:
                 return "I'm here with you. Let's take a deep breath together."
-            prompt = f"{self.persona}\nUser: {text}\nAssistant:"
+            # Use a concise recent context and a single Assistant cue
+            recent_pairs = self.history[-8:]
+            recent = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in recent_pairs])
+            prompt = f"{persona}\n{recent}\nAssistant:"
             inputs = self.tokenizer(prompt, return_tensors="pt", padding=True)
             outputs = self.model.generate(
                 **inputs,
@@ -118,10 +139,20 @@ class LLMResponder:
                 top_p=0.9,
                 do_sample=True,
                 pad_token_id=self.tokenizer.eos_token_id,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.15,
             )
             reply = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             self._last_error = None
-            return reply.split("Assistant:")[-1].strip().capitalize()
+            out = reply.split("Assistant:")[-1]
+            for stopper in ["\nUser:", "\nSystem:", "\nAssistant:"]:
+                if stopper in out:
+                    out = out.split(stopper)[0]
+            out = out.strip()
+            if not out:
+                out = "Here are three gentle ideas you might try: take a few slow breaths, sip warm water, and rest your eyes briefly."
+            self.history.append({"role": "assistant", "content": out})
+            return out
         except Exception as e:
             print("LLM error:", e)
             self._last_error = f"LLM error: {e}"
@@ -134,3 +165,9 @@ class LLMResponder:
             "ready": (self._openai_client is not None) if self.provider == "openai" else (self.model is not None and self.tokenizer is not None),
             "last_error": self._last_error,
         }
+
+    def update_profile(self, profile: dict):
+        self.profile = profile or {}
+        # Reset conversation if desired when profile changes
+        if os.getenv("LLM_RESET_ON_PROFILE", "false").lower() == "true":
+            self.history = []

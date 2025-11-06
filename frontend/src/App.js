@@ -47,6 +47,38 @@ export default function ElderlyAssistant() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Poll for reminder notifications
+  useEffect(() => {
+    let reminderRefreshCounter = 0;
+    const notificationInterval = setInterval(async () => {
+      try {
+        // Check for notifications every 5 seconds
+        const notifResponse = await fetch(`${API_URL}/notifications`);
+        const notifData = await notifResponse.json();
+        if (notifData.notifications && notifData.notifications.length > 0) {
+          notifData.notifications.forEach(notif => {
+            const message = notif.message || `Reminder: ${notif.text}`;
+            addMessage('assistant', message);
+            speak(message);
+          });
+          // Refresh reminders after notification
+          fetchReminders();
+        }
+        
+        // Refresh reminders list every 30 seconds (every 6th check)
+        reminderRefreshCounter++;
+        if (reminderRefreshCounter >= 6) {
+          fetchReminders();
+          reminderRefreshCounter = 0;
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(notificationInterval);
+  }, []);
+
   const fetchContacts = async () => {
     try {
       const response = await fetch(`${API_URL}/contacts`);
@@ -103,7 +135,8 @@ export default function ElderlyAssistant() {
         speak(data.response);
       }
 
-      if (command.includes('reminder') || command.includes('contact')) {
+      if (command.includes('reminder') || command.includes('contact') || 
+          command.includes('delete') || command.includes('remove') || command.includes('clear')) {
         fetchReminders();
         fetchContacts();
       }
@@ -205,7 +238,7 @@ export default function ElderlyAssistant() {
                             : 'bg-gray-100 text-gray-800'
                         }`}
                       >
-                        <p className="text-base">{msg.content}</p>
+                        <p className="text-base whitespace-pre-wrap">{msg.content}</p>
                         <span className="text-xs opacity-70 mt-1 block">
                           {msg.timestamp.toLocaleTimeString()}
                         </span>
