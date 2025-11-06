@@ -11,7 +11,7 @@
             "id": "8e828112",
             "text": "Reminder at 01:26 AM",
             "time": "2025-11-07 01:26",
-            "completed": false
+            "completed": true
         },
         {
             "id": "9934448b",
@@ -35,6 +35,12 @@
             "id": "f2c710b7",
             "text": "Reminder at 12:39 AM",
             "time": "2025-11-07 00:39",
+            "completed": true
+        },
+        {
+            "id": "d0d355c9",
+            "text": "Reminder at 01:19 AM",
+            "time": "2025-11-07 01:19",
             "completed": true
         }
     ]
