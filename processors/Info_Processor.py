@@ -172,7 +172,8 @@ class InfoProcessor(BaseProcessor):
         Requires NEWS_API_KEY environment variable to be set.
         If not set, informs user how to configure it.
         
-        Fetches top 5 headlines from US news sources.
+        Fetches top 5 headlines and displays them one by one with proper formatting.
+        Each headline is on a new line for better readability in the UI.
         """
         # Get API key from environment variables
         api_key = os.getenv("news_api_key")
@@ -198,11 +199,24 @@ class InfoProcessor(BaseProcessor):
                 self.speaker("Sorry, I couldn't find any news right now.")
                 return
             
-            # Announce headlines
-            self.speaker("Here are the top headlines:")
-            for article in articles:
-                # Speak each headline title
-                self.speaker(article["title"])
+            # Build formatted news message with each headline on a new line
+            # This ensures proper display in the frontend (one headline per line)
+            news_lines = ["Here are the top headlines:"]
+            
+            # Add each headline with numbering and newline
+            for idx, article in enumerate(articles, 1):
+                title = article.get("title", "").strip()
+                if title:
+                    # Format: "1. Headline text\n"
+                    news_lines.append(f"{idx}. {title}")
+            
+            # Join all lines with newlines for proper formatting
+            # The frontend will display each line separately due to whitespace-pre-wrap
+            formatted_news = "\n".join(news_lines)
+            
+            # Speak the formatted news (all at once for TTS, but formatted for display)
+            self.speaker(formatted_news)
+            
         except Exception:
             # Handle any errors gracefully
             self.speaker("Sorry, I couldn't fetch the news.")

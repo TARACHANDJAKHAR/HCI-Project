@@ -239,11 +239,19 @@ def get_contacts():
     """
     Get all emergency contacts.
     
+    Adds previous_phone field to each contact for display purposes.
+    If previous_phone doesn't exist in storage, it will be None/empty.
+    
     Returns:
-        JSON with list of emergency contacts
+        JSON with list of emergency contacts (each with name, phone, and previous_phone)
     """
     try:
         contacts = storage.load("emergency_contacts")
+        # Ensure previous_phone field exists for each contact (for display consistency)
+        # If previous_phone doesn't exist in stored data, it will be None
+        for contact in contacts:
+            if "previous_phone" not in contact:
+                contact["previous_phone"] = None
         return jsonify({'contacts': contacts})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -256,7 +264,8 @@ def add_contact():
     Request Body:
         {
             "name": "John Doe",
-            "phone": "+1234567890"
+            "phone": "+1234567890",
+            "previous_phone": "+0987654321"  (optional)
         }
     
     Returns:
@@ -266,11 +275,13 @@ def add_contact():
         data = request.json
         name = data.get('name')
         phone = data.get('phone')
+        previous_phone = data.get('previous_phone', None)  # Optional previous phone
         
         if not name or not phone:
             return jsonify({'error': 'Name and phone required'}), 400
         
-        success = storage.add_contact(name, phone)
+        # Add contact with previous_phone if provided
+        success = storage.add_contact(name, phone, previous_phone)
         
         return jsonify({
             'success': success,

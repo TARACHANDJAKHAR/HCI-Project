@@ -90,7 +90,7 @@ class StorageManager:
         with open(self.filename, "w") as f:
             json.dump(data, f, indent=4)
 
-    def add_contact(self, name, phone):
+    def add_contact(self, name, phone, previous_phone=None):
         """
         Add an emergency contact if it doesn't already exist.
         
@@ -99,6 +99,7 @@ class StorageManager:
         Args:
             name (str): Contact's name (e.g., "John Doe")
             phone (str): Contact's phone number (e.g., "+1234567890")
+            previous_phone (str, optional): Previous phone number for display purposes
             
         Returns:
             bool: True if added successfully, False if contact already exists
@@ -113,8 +114,11 @@ class StorageManager:
         if any(c["phone"] == phone for c in contacts):
             return False  # Contact already exists
         
-        # Add new contact as dictionary with name and phone
-        contacts.append({"name": name, "phone": phone})
+        # Add new contact as dictionary with name, phone, and optional previous_phone
+        contact_data = {"name": name, "phone": phone}
+        if previous_phone:
+            contact_data["previous_phone"] = previous_phone
+        contacts.append(contact_data)
         
         # Save updated contacts list back to file
         with open(self.filename, "r") as f:

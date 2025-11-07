@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Send, Phone, Clock, Heart, Bell, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Send, Phone, Clock, Heart, Bell, Volume2, Newspaper, Smile, Activity, Radio } from 'lucide-react';
 
 export default function ElderlyAssistant() {
   // ============================================================================
@@ -36,6 +36,14 @@ export default function ElderlyAssistant() {
   // Data state
   const [contacts, setContacts] = useState([]);             // Emergency contacts list
   const [reminders, setReminders] = useState([]);           // Reminders list (regular + scheduled)
+  const [news, setNews] = useState([]);                     // News headlines list
+  
+  // Panel visibility state
+  const [showReminderPanel, setShowReminderPanel] = useState(true);  // Show/hide reminder panel
+  const [showEmergencyPanel, setShowEmergencyPanel] = useState(true); // Show/hide emergency panel
+  
+  // Voice assistant status: 'idle', 'listening', 'processing', 'speaking'
+  const [voiceStatus, setVoiceStatus] = useState('idle');
   
   // Refs for DOM access and speech recognition
   const recognitionRef = useRef(null);                       // Web Speech API recognition instance
@@ -95,6 +103,7 @@ export default function ElderlyAssistant() {
     // Load initial data on component mount
     fetchContacts();
     fetchReminders();
+    fetchNews();
   }, []); // Empty dependency array = run once on mount
 
   // ============================================================================
@@ -194,6 +203,64 @@ export default function ElderlyAssistant() {
     }
   };
 
+  /**
+   * Fetch news headlines from backend.
+   * 
+   * Updates the news state with headlines from the news API.
+   * Fetches news when user asks for it or on initial load.
+   */
+  const fetchNews = async () => {
+    try {
+      // Trigger news fetch via backend command processor
+      // The backend will fetch and return formatted news
+      const response = await fetch(`${API_URL}/process-command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'what is the news' }),
+      });
+      const data = await response.json();
+      
+      // Parse news from response
+      if (data.response) {
+        // Split response by newlines
+        const lines = data.response.split('\n');
+        
+        // Find the line with "Here are the top headlines:" and get everything after it
+        const headlineIndex = lines.findIndex(line => 
+          line.toLowerCase().includes('here are') || line.toLowerCase().includes('headlines')
+        );
+        
+        if (headlineIndex !== -1) {
+          // Extract headlines (skip the header line and empty lines)
+          const headlines = lines
+            .slice(headlineIndex + 1)
+            .map(line => line.trim())
+            .filter(line => line && line.length > 0 && !line.toLowerCase().includes('here are'))
+            .map(line => line.replace(/^\d+\.\s*/, '').trim()) // Remove numbering
+            .filter(line => line.length > 0);
+          
+          if (headlines.length > 0) {
+            setNews(headlines);
+            return;
+          }
+        }
+        
+        // Fallback: if no structured format, try to extract numbered items
+        const numberedLines = lines
+          .filter(line => /^\d+\./.test(line.trim()))
+          .map(line => line.replace(/^\d+\.\s*/, '').trim())
+          .filter(line => line.length > 0);
+        
+        if (numberedLines.length > 0) {
+          setNews(numberedLines);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching news:', error);
+      setNews([]); // Clear news on error
+    }
+  };
+
   // ============================================================================
   // Text-to-Speech
   // ============================================================================
@@ -210,6 +277,7 @@ export default function ElderlyAssistant() {
       // Cancel any ongoing speech to prevent overlapping
       window.speechSynthesis.cancel();
       setIsSpeaking(true);
+      setVoiceStatus('speaking');
       
       // Create speech utterance
       const utterance = new SpeechSynthesisUtterance(text);
@@ -219,10 +287,17 @@ export default function ElderlyAssistant() {
       utterance.lang = 'en-IN'; // Indian English
       
       // Handle speech end
-      utterance.onend = () => setIsSpeaking(false);
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setVoiceStatus('idle');
+      };
       
       // Handle speech errors
-      utterance.onerror = (e) => console.error('TTS Error:', e.error);
+      utterance.onerror = (e) => {
+        console.error('TTS Error:', e.error);
+        setIsSpeaking(false);
+        setVoiceStatus('idle');
+      };
       
       // Start speaking
       window.speechSynthesis.speak(utterance);
@@ -261,6 +336,11 @@ export default function ElderlyAssistant() {
   const handleCommand = async (command) => {
     // Add user message to chat
     addMessage('user', command);
+    
+    // Update voice status to processing
+    if (isListening) {
+      setVoiceStatus('processing');
+    }
 
     try {
       // Send command to backend API
@@ -277,6 +357,11 @@ export default function ElderlyAssistant() {
         addMessage('assistant', data.response);
         speak(data.response);
       }
+      
+      // Reset voice status after processing
+      if (isListening) {
+        setVoiceStatus('idle');
+      }
 
       // Refresh reminders/contacts if command was related to them
       // This ensures UI stays in sync after changes
@@ -284,6 +369,11 @@ export default function ElderlyAssistant() {
           command.includes('delete') || command.includes('remove') || command.includes('clear')) {
         fetchReminders();
         fetchContacts();
+      }
+      
+      // Refresh news if user asks for news
+      if (command.includes('news') || command.includes('headline')) {
+        fetchNews();
       }
     } catch (error) {
       // Handle errors gracefully
@@ -313,11 +403,13 @@ export default function ElderlyAssistant() {
       // Stop recognition
       recognitionRef.current.stop();
       setIsListening(false);
+      setVoiceStatus('idle');
     } else {
       // Start recognition
       setTranscript('');
       recognitionRef.current.start();
       setIsListening(true);
+      setVoiceStatus('listening');
     }
   };
 
@@ -363,7 +455,7 @@ export default function ElderlyAssistant() {
   const QuickAction = ({ icon: Icon, label, command }) => (
     <button
       onClick={() => handleCommand(command)}
-      className="flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-md hover:shadow-lg transition-all hover:scale-105"
+      className="flex flex-col items-center justify-center p-4 bg-white rounded-[1.2rem] shadow-md hover:shadow-lg transition-all hover:scale-105 border border-gray-100"
     >
       <Icon className="w-8 h-8 mb-2 text-blue-600" />
       <span className="text-sm font-medium text-gray-700">{label}</span>
@@ -374,15 +466,23 @@ export default function ElderlyAssistant() {
   // Render
   // ============================================================================
   
+  // Calculate mood/health summary data
+  const reminderCount = reminders.length;
+  const contactCount = contacts.length;
+  const moodEmoji = '😊'; // Could be made dynamic based on user interactions
+  
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4">
+      <div className="max-w-6xl mx-auto relative">
+        
         {/* Header Section */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 text-center mb-2">
-            Elderly Care Assistant
-          </h1>
-          <p className="text-gray-600 text-center">Your friendly voice companion</p>
+        <div className="bg-white rounded-[1.2rem] shadow-2xl border border-gray-100 p-6 mb-6">
+          <div className="flex flex-col items-center justify-center">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Elderly Care Assistant
+            </h1>
+            <p className="text-gray-600">Your friendly voice companion</p>
+          </div>
 
           {/* Start Assistant Button - Only shown before assistant starts */}
           {!assistantStarted && (
@@ -408,7 +508,7 @@ export default function ElderlyAssistant() {
             {/* Left Column: Quick Actions & Chat */}
             <div className="lg:col-span-2">
               {/* Quick Actions Panel */}
-              <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+              <div className="bg-white rounded-[1.2rem] shadow-lg border border-gray-100 p-6 mb-6">
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Quick Actions</h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <QuickAction icon={Clock} label="Time" command="what time is it" />
@@ -419,7 +519,7 @@ export default function ElderlyAssistant() {
               </div>
 
               {/* Chat Interface */}
-              <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+              <div className="bg-white rounded-[1.2rem] shadow-lg border border-gray-100 p-6 mb-6">
                 {/* Messages Display Area */}
                 <div className="h-96 overflow-y-auto mb-4 space-y-4">
                   {messages.map((msg, idx) => (
@@ -447,20 +547,79 @@ export default function ElderlyAssistant() {
                   <div ref={messagesEndRef} />
                 </div>
 
+                {/* Reminder and Emergency Panels - In the blank space between messages and input */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  {/* Reminder Panel */}
+                  <div className="bg-blue-50 rounded-[1.2rem] shadow-md border-2 border-blue-200">
+                    <div 
+                      className="flex items-center justify-between p-3 cursor-pointer hover:bg-blue-100 transition-colors"
+                      onClick={() => setShowReminderPanel(!showReminderPanel)}
+                    >
+                      <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <Bell className="w-5 h-5 text-blue-600" />
+                        Reminders
+                      </h3>
+                      <span className="text-sm text-gray-600">
+                        {showReminderPanel ? '▼' : '▶'}
+                      </span>
+                    </div>
+                    {showReminderPanel && (
+                      <div className="px-3 pb-3 max-h-48 overflow-y-auto">
+                        {reminders.length > 0 ? (
+                          <div className="space-y-2">
+                            {reminders.map((reminder, idx) => (
+                              <div key={idx} className="p-2 bg-white rounded-lg border border-blue-200">
+                                <p className="text-sm text-gray-700">{reminder}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500 py-2">No reminders set</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Emergency Panel */}
+                  <div className="bg-red-50 rounded-[1.2rem] shadow-md border-2 border-red-200">
+                    <div 
+                      className="flex items-center justify-between p-3 cursor-pointer hover:bg-red-100 transition-colors"
+                      onClick={() => setShowEmergencyPanel(!showEmergencyPanel)}
+                    >
+                      <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <Phone className="w-5 h-5 text-red-600" />
+                        Emergency Contacts
+                      </h3>
+                      <span className="text-sm text-gray-600">
+                        {showEmergencyPanel ? '▼' : '▶'}
+                      </span>
+                    </div>
+                    {showEmergencyPanel && (
+                      <div className="px-3 pb-3 max-h-48 overflow-y-auto">
+                        {contacts.length > 0 ? (
+                          <div className="space-y-2">
+                            {contacts.map((contact, idx) => (
+                              <div key={idx} className="p-2 bg-white rounded-lg border border-red-200">
+                                <p className="font-medium text-sm text-gray-800">{contact.name}</p>
+                                <p className="text-xs text-gray-600">{contact.phone}</p>
+                                {contact.previous_phone && (
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Previous: {contact.previous_phone}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500 py-2">No contacts added</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Input Controls */}
                 <div className="flex items-center gap-4">
-                  {/* Voice Input Button */}
-                  <button
-                    onClick={toggleListening}
-                    className={`p-4 rounded-full transition-all ${
-                      isListening
-                        ? 'bg-red-500 hover:bg-red-600 animate-pulse'
-                        : 'bg-blue-600 hover:bg-blue-700'
-                    } text-white shadow-lg`}
-                  >
-                    {isListening ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-                  </button>
-
                   {/* Text Input & Send Button */}
                   <div className="flex-1 flex gap-2">
                     <input
@@ -469,11 +628,11 @@ export default function ElderlyAssistant() {
                       onChange={(e) => setTextInput(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder="Type your message..."
-                      className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-blue-500 text-lg"
+                      className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-[1.2rem] focus:outline-none focus:border-blue-500 text-lg"
                     />
                     <button
                       onClick={handleTextSubmit}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+                      className="px-6 py-3 bg-blue-600 text-white rounded-[1.2rem] hover:bg-blue-700 transition-colors shadow-md"
                     >
                       <Send className="w-5 h-5" />
                     </button>
@@ -496,48 +655,124 @@ export default function ElderlyAssistant() {
               </div>
             </div>
 
-            {/* Right Column: Reminders & Contacts */}
+            {/* Right Column: News Section */}
             <div className="space-y-6">
-              {/* Reminders Panel */}
-              <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-blue-600" />
-                  Reminders
-                </h2>
-                <div className="space-y-2">
-                  {reminders.length > 0 ? (
-                    reminders.map((reminder, idx) => (
-                      <div key={idx} className="p-3 bg-blue-50 rounded-lg">
-                        <p className="text-gray-700">{reminder}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-500 text-sm">No reminders set</p>
-                  )}
+              {/* News Panel */}
+              <div className="bg-white rounded-[1.2rem] shadow-lg border border-gray-100 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
+                    <Newspaper className="w-5 h-5 text-green-600" />
+                    Top News
+                  </h2>
+                  <button
+                    onClick={fetchNews}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Refresh
+                  </button>
                 </div>
-              </div>
-
-              {/* Emergency Contacts Panel */}
-              <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <Phone className="w-5 h-5 text-red-600" />
-                  Emergency Contacts
-                </h2>
-                <div className="space-y-2">
-                  {contacts.length > 0 ? (
-                    contacts.map((contact, idx) => (
-                      <div key={idx} className="p-3 bg-red-50 rounded-lg">
-                        <p className="font-medium text-gray-800">{contact.name}</p>
-                        <p className="text-sm text-gray-600">{contact.phone}</p>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {news.length > 0 ? (
+                    news.map((headline, idx) => (
+                      <div key={idx} className="p-3 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition-colors">
+                        <p className="text-sm text-gray-700 leading-relaxed">{headline}</p>
                       </div>
                     ))
                   ) : (
-                    <p className="text-gray-500 text-sm">No contacts added</p>
+                    <div className="text-center py-8">
+                      <p className="text-gray-500 text-sm mb-3">No news available</p>
+                      <button
+                        onClick={fetchNews}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                      >
+                        Load News
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
+        )}
+        
+        {/* Bottom-right corner widgets */}
+        {assistantStarted && (
+          <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-40">
+            {/* Mood/Health Summary Widget */}
+            <div className="bg-white rounded-[1.2rem] shadow-lg border border-gray-100 p-3 min-w-[200px]">
+              <div className="flex items-center gap-2 mb-2">
+                <Smile className="w-4 h-4 text-yellow-500" />
+                <span className="text-xs font-semibold text-gray-700">Today's Summary</span>
+              </div>
+              <div className="text-xs text-gray-600 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span>Mood:</span>
+                  <span className="font-medium">{moodEmoji}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Reminders:</span>
+                  <span className="font-medium">{reminderCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Contacts:</span>
+                  <span className="font-medium">{contactCount}</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Voice Assistant Status Indicator */}
+            <div className="bg-white rounded-[1.2rem] shadow-lg border border-gray-100 p-3 min-w-[200px]">
+              <div className="flex items-center gap-2 mb-2">
+                <Radio className={`w-4 h-4 ${
+                  voiceStatus === 'listening' ? 'text-red-500 animate-pulse' :
+                  voiceStatus === 'processing' ? 'text-yellow-500 animate-pulse' :
+                  voiceStatus === 'speaking' ? 'text-green-500 animate-pulse' :
+                  'text-gray-400'
+                }`} />
+                <span className="text-xs font-semibold text-gray-700">Voice Status</span>
+              </div>
+              <div className="text-xs text-gray-600">
+                <span className={`font-medium ${
+                  voiceStatus === 'listening' ? 'text-red-600' :
+                  voiceStatus === 'processing' ? 'text-yellow-600' :
+                  voiceStatus === 'speaking' ? 'text-green-600' :
+                  'text-gray-500'
+                }`}>
+                  {voiceStatus === 'listening' ? 'Listening...' :
+                   voiceStatus === 'processing' ? 'Processing...' :
+                   voiceStatus === 'speaking' ? 'Speaking...' :
+                   'Idle'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Floating Mic Button - Bottom Right (above widgets) */}
+        {assistantStarted && (
+          <button
+            onClick={toggleListening}
+            className={`fixed bottom-[200px] right-6 p-5 rounded-full transition-all z-50 ${
+              isListening
+                ? 'bg-red-500 hover:bg-red-600 animate-pulse shadow-2xl scale-110'
+                : voiceStatus === 'processing'
+                ? 'bg-yellow-500 hover:bg-yellow-600 animate-pulse shadow-xl'
+                : voiceStatus === 'speaking'
+                ? 'bg-green-500 hover:bg-green-600 animate-pulse shadow-xl'
+                : 'bg-blue-600 hover:bg-blue-700 shadow-xl hover:scale-105'
+            } text-white`}
+            title={isListening ? 'Stop listening' : 'Start voice input'}
+          >
+            {isListening ? (
+              <MicOff className="w-6 h-6" />
+            ) : voiceStatus === 'processing' ? (
+              <Activity className="w-6 h-6 animate-spin" />
+            ) : voiceStatus === 'speaking' ? (
+              <Volume2 className="w-6 h-6" />
+            ) : (
+              <Mic className="w-6 h-6" />
+            )}
+          </button>
         )}
       </div>
     </div>
